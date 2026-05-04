@@ -29,6 +29,35 @@ const parseRevenueCatTokenMap = () => {
 
 const revenueCatTokenMap = parseRevenueCatTokenMap();
 
+const parseTokenAmountFromProductId = (productId) => {
+  const raw = String(productId || '').trim();
+  if (!raw) return null;
+
+  // Preferred format: logora_tokens_100 (or token-100 etc.)
+  const tokenSegmentMatch = raw.match(/(?:^|[_-])tokens?[_-](\d+)(?:$|[_-])/i);
+  if (tokenSegmentMatch) {
+    const amount = Number.parseInt(tokenSegmentMatch[1], 10);
+    if (Number.isFinite(amount) && amount > 0) return amount;
+  }
+
+  // Fallback: any trailing number at the end of productId.
+  const trailingNumberMatch = raw.match(/(\d+)$/);
+  if (trailingNumberMatch) {
+    const amount = Number.parseInt(trailingNumberMatch[1], 10);
+    if (Number.isFinite(amount) && amount > 0) return amount;
+  }
+
+  return null;
+};
+
+const resolveTokenAmount = (productId) => {
+  const mapped = revenueCatTokenMap.get(productId);
+  if (Number.isFinite(mapped) && mapped > 0) {
+    return mapped;
+  }
+  return parseTokenAmountFromProductId(productId);
+};
+
 const createNotification = async ({ connection, deviceId, title, body }) => {
   await connection.execute(
     `INSERT INTO notifications (id, device_id, title, body, is_read)
@@ -165,9 +194,9 @@ const syncPurchase = async ({
   productId,
   purchaseId,
 }) => {
-  const tokenAmount = revenueCatTokenMap.get(productId);
+  const tokenAmount = resolveTokenAmount(productId);
   if (!tokenAmount) {
-    const error = new Error(`Unknown product mapping: ${productId}`);
+    const error = new Error(`Cannot resolve token amount for product: ${productId}`);
     error.statusCode = 400;
     throw error;
   }
