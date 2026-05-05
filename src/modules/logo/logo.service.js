@@ -9,7 +9,7 @@ const OVERLOAD_RETRY_COUNT = 2;
 const SYNC_VARIANT_COUNT = 0;
 const OPENAI_IMAGE_SIZE = '512x512';
 const OPENAI_IMAGE_QUALITY = 'low';
-const FORCE_GEMINI_SVG = true;
+const FORCE_GEMINI_SVG = false;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
