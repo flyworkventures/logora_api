@@ -5,7 +5,11 @@ const { env } = require('../../config/env');
 const TOKEN_COST_PER_LOGO = 5;
 const FIXED_GEMINI_MODEL = 'gemini-2.5-flash-lite';
 const FIXED_OPENAI_IMAGE_MODEL = env.openAiImageModel || 'gpt-image-1';
-const OVERLOAD_RETRY_COUNT = 5;
+const OVERLOAD_RETRY_COUNT = 2;
+const SYNC_VARIANT_COUNT = 0;
+const OPENAI_IMAGE_SIZE = '512x512';
+const OPENAI_IMAGE_QUALITY = 'low';
+const FORCE_GEMINI_SVG = true;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -98,8 +102,8 @@ const requestPngLogoWithOpenAi = async ({ model, prompt, apiKey, signal }) => {
     body: JSON.stringify({
       model,
       prompt,
-      size: '1024x1024',
-      quality: 'high',
+      size: OPENAI_IMAGE_SIZE,
+      quality: OPENAI_IMAGE_QUALITY,
       background: 'transparent',
       output_format: 'png',
     }),
@@ -311,7 +315,7 @@ const generateLogoWithGemini = async ({ prompt, generationId }) => {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 140000);
+  const timeout = setTimeout(() => controller.abort(), env.logoGenerateTimeoutMs);
 
   try {
     const basePalette = extractPaletteFromPrompt(prompt);
@@ -321,7 +325,7 @@ const generateLogoWithGemini = async ({ prompt, generationId }) => {
     });
 
     const openAiImageModel = FIXED_OPENAI_IMAGE_MODEL;
-    const canUseOpenAi = Boolean(env.openAiApiKey);
+    const canUseOpenAi = !FORCE_GEMINI_SVG && Boolean(env.openAiApiKey);
 
     let mainResult;
     if (canUseOpenAi) {
@@ -343,54 +347,60 @@ const generateLogoWithGemini = async ({ prompt, generationId }) => {
       });
     }
 
-    const palettes = buildVariationPalette(basePalette);
-    const variantPrompts = palettes.map(
-      (palette, index) =>
-        `${professionalPrompt}\n\n` +
-        `Variation #${index + 1} color rules:\n` +
-        `- Use this exact palette: ${palette.join(', ')}\n` +
-        '- Preserve the same core logo concept and structure.\n' +
-        '- Change ONLY colors; do not change symbol geometry, layout, spacing, or composition.\n',
-    );
+    let variants = [];
+    if (SYNC_VARIANT_COUNT > 0) {
+      const palettes = buildVariationPalette(basePalette).slice(0, SYNC_VARIANT_COUNT);
+      const variantPrompts = palettes.map(
+        (palette, index) =>
+          `${professionalPrompt}\n\n` +
+          `Variation #${index + 1} color rules:\n` +
+          `- Use this exact palette: ${palette.join(', ')}\n` +
+          '- Preserve the same core logo concept and structure.\n' +
+          '- Change ONLY colors; do not change symbol geometry, layout, spacing, or composition.\n',
+      );
 
-    const variants = [];
-    for (let i = 0; i < variantPrompts.length; i += 1) {
-      // eslint-disable-next-line no-console
-      console.log('[logo.service] generating variation', { index: i + 1 });
-      try {
+      const variantTasks = variantPrompts.map(async (variantPrompt, index) => {
+        // eslint-disable-next-line no-console
+        console.log('[logo.service] generating variation', { index: index + 1 });
         const variant = canUseOpenAi
           ? await requestPngLogoWithOpenAi({
               model: openAiImageModel,
-              prompt: variantPrompts[i],
+              prompt: variantPrompt,
               apiKey: env.openAiApiKey,
               signal: controller.signal,
             })
           : await requestSvgWithFixedModel({
-              prompt: variantPrompts[i],
+              prompt: variantPrompt,
               apiKey: env.geminiApiKey,
               signal: controller.signal,
             });
-        variants.push({
+
+        return {
           mimeType: variant.mimeType,
           imageBase64: variant.imageBase64,
           description:
-            i === 0
-              ? `Variation 1 (user palette: ${palettes[i].join(', ')})`
-              : `Variation ${i + 1} (random palette: ${palettes[i].join(', ')})`,
-        });
-      } catch (variantError) {
-        // Yük altında varyant üretimi düşerse akışı kırma, ana görseli çoğalt.
+            index === 0
+              ? `Variation 1 (user palette: ${palettes[index].join(', ')})`
+              : `Variation ${index + 1} (random palette: ${palettes[index].join(', ')})`,
+        };
+      });
+
+      const variantSettled = await Promise.allSettled(variantTasks);
+      variants = variantSettled.map((result, index) => {
+        if (result.status === 'fulfilled') {
+          return result.value;
+        }
         // eslint-disable-next-line no-console
         console.warn('[logo.service] variation generation failed, using primary fallback', {
-          index: i + 1,
-          message: variantError?.message,
+          index: index + 1,
+          message: result.reason?.message,
         });
-        variants.push({
+        return {
           mimeType: mainResult.mimeType,
           imageBase64: mainResult.imageBase64,
-          description: `Variation ${i + 1} (fallback)`,
-        });
-      }
+          description: `Variation ${index + 1} (fallback)`,
+        };
+      });
     }
 
     return {

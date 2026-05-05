@@ -27,6 +27,10 @@ const env = {
   openAiApiKey: process.env.OPENAI_API_KEY || '',
   openAiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
   openAiImageModel: process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1',
+  logoGenerateTimeoutMs: Number(process.env.LOGO_GENERATE_TIMEOUT_MS || 300000),
+  serverRequestTimeoutMs: Number(process.env.SERVER_REQUEST_TIMEOUT_MS || 300000),
+  serverHeadersTimeoutMs: Number(process.env.SERVER_HEADERS_TIMEOUT_MS || 305000),
+  serverKeepAliveTimeoutMs: Number(process.env.SERVER_KEEP_ALIVE_TIMEOUT_MS || 65000),
   revenueCatTokenMap:
     process.env.REVENUECAT_TOKEN_MAP ||
     'logora_tokens_50:50,logora_tokens_100:100,logora_tokens_200:200',
