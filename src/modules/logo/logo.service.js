@@ -7,7 +7,7 @@ const FIXED_GEMINI_MODEL = 'gemini-2.5-flash-lite';
 const FIXED_OPENAI_IMAGE_MODEL = env.openAiImageModel || 'gpt-image-1';
 const OVERLOAD_RETRY_COUNT = 2;
 const SYNC_VARIANT_COUNT = 0;
-const OPENAI_IMAGE_SIZE = '512x512';
+const OPENAI_IMAGE_SIZE = '1024x1024';
 const OPENAI_IMAGE_QUALITY = 'low';
 const FORCE_GEMINI_SVG = false;
 
