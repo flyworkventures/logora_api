@@ -3,6 +3,8 @@ const { pool } = require('../../db/mysql');
 const { env } = require('../../config/env');
 const { signDeviceToken } = require('../../utils/jwt');
 
+const INITIAL_FREE_TOKEN_BALANCE = 10;
+
 const mapDeviceRow = (row) => ({
   deviceId: row.deviceId,
   revenueCatUserId: row.revenueCatUserId,
@@ -96,8 +98,8 @@ const openDevice = async (input) => {
 
       await connection.execute(
         `INSERT INTO devices (id, device_id, revenue_cat_user_id, token_balance)
-         VALUES (?, ?, ?, 0)`,
-        [devicePrimaryKey, deviceId, revenueCatUserId],
+         VALUES (?, ?, ?, ?)`,
+        [devicePrimaryKey, deviceId, revenueCatUserId, INITIAL_FREE_TOKEN_BALANCE],
       );
 
       const [createdRows] = await connection.execute(
@@ -114,8 +116,8 @@ const openDevice = async (input) => {
         await createNotification({
           connection,
           deviceId: device.id,
-          title: 'The free trial has started',
-          body: 'Your 2-day free trial has started.\nEnjoy unlimited features.',
+          title: 'Welcome bonus',
+          body: `Welcome to Logora! ${INITIAL_FREE_TOKEN_BALANCE} free tokens were added to your balance.`,
         });
       }
     } else if (revenueCatUserId && device.revenueCatUserId !== revenueCatUserId) {
