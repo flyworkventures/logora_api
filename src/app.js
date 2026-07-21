@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const { authRouter } = require('./modules/auth/auth.routes');
 const { chatRouter } = require('./modules/chat/chat.routes');
 const { logoRouter } = require('./modules/logo/logo.routes');
+const panelRoutes = require('./routes/panelRoutes');
 
 const createApp = () => {
   const app = express();
@@ -16,6 +17,7 @@ const createApp = () => {
     res.status(200).json({ ok: true });
   });
 
+  app.use('/panel/v1', panelRoutes);
   app.use('/auth', authRouter);
   app.use('/chat', chatRouter);
   app.use('/logo', logoRouter);
