@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const { authRouter } = require('./modules/auth/auth.routes');
 const { chatRouter } = require('./modules/chat/chat.routes');
 const { logoRouter } = require('./modules/logo/logo.routes');
+const { webhooksRouter } = require('./modules/webhooks/webhooks.routes');
 const panelRoutes = require('./routes/panelRoutes');
 
 const createApp = () => {
@@ -21,6 +22,7 @@ const createApp = () => {
   app.use('/auth', authRouter);
   app.use('/chat', chatRouter);
   app.use('/logo', logoRouter);
+  app.use('/webhooks', webhooksRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ message: 'Route not found' });
