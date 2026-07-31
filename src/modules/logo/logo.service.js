@@ -1,29 +1,31 @@
-const { randomUUID } = require('crypto');
-const { pool } = require('../../db/mysql');
-const { env } = require('../../config/env');
+const { randomUUID } = require("crypto");
+const { pool } = require("../../db/mysql");
+const { env } = require("../../config/env");
 
 const TOKEN_COST_PER_LOGO = 5;
-const FIXED_GEMINI_MODEL = 'gemini-2.5-flash-lite';
-const FIXED_OPENAI_IMAGE_MODEL = env.openAiImageModel || 'gpt-image-1';
+const FIXED_GEMINI_MODEL = "gemini-2.5-flash-lite";
+const FIXED_OPENAI_IMAGE_MODEL = env.openAiImageModel || "gpt-image-2";
 const OVERLOAD_RETRY_COUNT = 2;
 const SYNC_VARIANT_COUNT = 3;
-const OPENAI_IMAGE_SIZE = env.openAiImageSize || '1024x1024';
-const OPENAI_IMAGE_QUALITY = 'low';
+const OPENAI_IMAGE_SIZE = env.openAiImageSize || "1024x1024";
+const OPENAI_IMAGE_QUALITY = "medium";
 const FORCE_GEMINI_SVG = false;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const HEX_COLOR_REGEX = /#([0-9A-Fa-f]{6})\b/g;
-const FIELD_REGEX = (name) => new RegExp(`^${name}:\\s*(.+)$`, 'im');
+const FIELD_REGEX = (name) => new RegExp(`^${name}:\\s*(.+)$`, "im");
 
 const normalizeHexColor = (value) => {
-  const raw = String(value || '').trim().replace('#', '');
+  const raw = String(value || "")
+    .trim()
+    .replace("#", "");
   if (!/^[0-9A-Fa-f]{6}$/.test(raw)) return null;
   return `#${raw.toUpperCase()}`;
 };
 
 const extractPaletteFromPrompt = (prompt) => {
-  const matches = String(prompt || '').match(HEX_COLOR_REGEX) || [];
+  const matches = String(prompt || "").match(HEX_COLOR_REGEX) || [];
   const unique = [];
   for (const match of matches) {
     const normalized = normalizeHexColor(match);
@@ -35,21 +37,21 @@ const extractPaletteFromPrompt = (prompt) => {
 };
 
 const extractFieldFromPrompt = (prompt, fieldName) => {
-  const raw = String(prompt || '');
+  const raw = String(prompt || "");
   const match = raw.match(FIELD_REGEX(fieldName));
-  if (!match) return '';
-  return String(match[1] || '').trim();
+  if (!match) return "";
+  return String(match[1] || "").trim();
 };
 
 const randomHexColor = () => {
   const value = Math.floor(Math.random() * 0xffffff);
-  return `#${value.toString(16).padStart(6, '0').toUpperCase()}`;
+  return `#${value.toString(16).padStart(6, "0").toUpperCase()}`;
 };
 
 const buildVariationPalette = (basePalette) => {
-  const primary = basePalette[0] || '#367AE8';
-  const secondary = basePalette[1] || '#3D3EE4';
-  const accent = basePalette[2] || '#111827';
+  const primary = basePalette[0] || "#367AE8";
+  const secondary = basePalette[1] || "#3D3EE4";
+  const accent = basePalette[2] || "#111827";
 
   const first = [primary, secondary, accent];
   const second = [randomHexColor(), randomHexColor(), randomHexColor()];
@@ -58,44 +60,49 @@ const buildVariationPalette = (basePalette) => {
 };
 
 const buildProfessionalBasePrompt = ({ userPrompt, palette }) => {
-  const paletteText = palette.length > 0 ? palette.join(', ') : '#367AE8, #3D3EE4, #111827';
-  const industry = extractFieldFromPrompt(userPrompt, 'Industry');
-  const style = extractFieldFromPrompt(userPrompt, 'Style');
+  const paletteText =
+    palette.length > 0 ? palette.join(", ") : "#367AE8, #3D3EE4, #111827";
+  const industry = extractFieldFromPrompt(userPrompt, "Industry");
+  const style = extractFieldFromPrompt(userPrompt, "Style");
   return [
-    'You are a senior brand identity designer with 15+ years of experience.',
-    'Create a professional, production-ready, premium logo.',
+    "You are a senior brand identity designer with 15+ years of experience.",
+    "Create a professional, production-ready, premium logo.",
     industry
       ? `Target industry (must strongly guide concept): ${industry}.`
-      : 'Target industry: generic business.',
+      : "Target industry: generic business.",
     style
       ? `Target style (must strongly guide visual language): ${style}.`
-      : 'Target style: modern minimal.',
-    'Design goals:',
-    '- Clear brand symbol with strong visual hierarchy and balanced negative space.',
-    '- Clean geometry, consistent stroke logic, and scalable vector construction.',
-    '- Distinctive yet timeless look suitable for app icon, web header, and print.',
-    '- Avoid clipart feel, noise, chaotic details, and overly playful amateur style.',
-    '- Ensure high contrast and legibility on dark and light backgrounds.',
+      : "Target style: modern minimal.",
+    "Design goals:",
+    "- Clear brand symbol with strong visual hierarchy and balanced negative space.",
+    "- Clean geometry, consistent stroke logic, and scalable vector construction.",
+    "- Distinctive yet timeless look suitable for app icon, web header, and print.",
+    "- Avoid clipart feel, noise, chaotic details, and overly playful amateur style.",
+    "- Ensure high contrast and legibility on dark and light backgrounds.",
     `Preferred palette: ${paletteText}.`,
-    'Hard constraints:',
-    '- Output a single centered logo on transparent background.',
-    '- Keep canvas width and height exactly 1024.',
-    '- No mockup/photo/background scene.',
-    '- Industry and style constraints are mandatory and must be visible in icon language, shape and typography.',
-    '- If there is a conflict, prioritize Industry and Style over generic creativity.',
-    '- Keep background transparent.',
-    '- Keep typography minimal and clean if text is included.',
-    '',
-    'Client brief:',
+    "Hard constraints:",
+    "- Output a single centered logo on a plain solid white background.",
+    "- Keep canvas width and height exactly 1024.",
+    "- No mockup/photo/background scene.",
+    "- Industry and style constraints are mandatory and must be visible in icon language, shape and typography.",
+    "- If there is a conflict, prioritize Industry and Style over generic creativity.",
+    "- Keep the background plain white with no texture, gradient, or scenery.",
+    "- Keep typography minimal and clean if text is included.",
+    "",
+    "Client brief:",
     userPrompt,
-  ].join('\n');
+  ].join("\n");
 };
 
 const requestPngLogoWithOpenAi = async ({ model, prompt, apiKey, signal }) => {
-  const response = await fetch('https://api.openai.com/v1/images/generations', {
-    method: 'POST',
+  const supportsTransparentBackground = !String(model || "")
+    .toLowerCase()
+    .startsWith("gpt-image-2");
+
+  const response = await fetch("https://api.openai.com/v1/images/generations", {
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
     signal,
@@ -104,14 +111,14 @@ const requestPngLogoWithOpenAi = async ({ model, prompt, apiKey, signal }) => {
       prompt,
       size: OPENAI_IMAGE_SIZE,
       quality: OPENAI_IMAGE_QUALITY,
-      background: 'transparent',
-      output_format: 'png',
+      background: supportsTransparentBackground ? "transparent" : "opaque",
+      output_format: "png",
     }),
   });
 
   const raw = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = raw?.error?.message || 'OpenAI image generation failed';
+    const message = raw?.error?.message || "OpenAI image generation failed";
     const error = new Error(message);
     error.statusCode =
       response.status >= 400 && response.status < 600 ? response.status : 502;
@@ -119,18 +126,18 @@ const requestPngLogoWithOpenAi = async ({ model, prompt, apiKey, signal }) => {
   }
 
   const imageBase64 =
-    raw?.data?.[0]?.b64_json || raw?.data?.[0]?.image_base64 || '';
-  if (!imageBase64 || typeof imageBase64 !== 'string') {
-    const error = new Error('OpenAI image response is empty');
+    raw?.data?.[0]?.b64_json || raw?.data?.[0]?.image_base64 || "";
+  if (!imageBase64 || typeof imageBase64 !== "string") {
+    const error = new Error("OpenAI image response is empty");
     error.statusCode = 502;
     throw error;
   }
 
   return {
-    mimeType: 'image/png',
+    mimeType: "image/png",
     imageBase64,
-    description: 'Generated via OpenAI image model',
-    provider: 'openai',
+    description: "Generated via OpenAI image model",
+    provider: "openai",
     model,
   };
 };
@@ -153,11 +160,11 @@ const deductTokensAndCreateJob = async ({ deviceDbId, prompt }) => {
     const device = rows[0];
 
     if (!device) {
-      throw new Error('Device not found');
+      throw new Error("Device not found");
     }
 
     if (Number(device.tokenBalance) < TOKEN_COST_PER_LOGO) {
-      const error = new Error('Insufficient token balance');
+      const error = new Error("Insufficient token balance");
       error.statusCode = 402;
       throw error;
     }
@@ -182,7 +189,7 @@ const deductTokensAndCreateJob = async ({ deviceDbId, prompt }) => {
       tokenCost: TOKEN_COST_PER_LOGO,
       tokenBalance: nextBalance,
       prompt,
-      status: 'processing',
+      status: "processing",
     };
   } catch (error) {
     await connection.rollback();
@@ -202,29 +209,34 @@ const refundTokens = async ({ deviceDbId }) => {
 };
 
 const extractSvg = (text) => {
-  if (!text || typeof text !== 'string') return '';
-  const start = text.indexOf('<svg');
-  const end = text.lastIndexOf('</svg>');
-  if (start === -1 || end === -1 || end <= start) return '';
-  return text.slice(start, end + '</svg>'.length).trim();
+  if (!text || typeof text !== "string") return "";
+  const start = text.indexOf("<svg");
+  const end = text.lastIndexOf("</svg>");
+  if (start === -1 || end === -1 || end <= start) return "";
+  return text.slice(start, end + "</svg>".length).trim();
 };
 
-const requestSvgLogoWithTextModel = async ({ model, prompt, apiKey, signal }) => {
+const requestSvgLogoWithTextModel = async ({
+  model,
+  prompt,
+  apiKey,
+  signal,
+}) => {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   let lastError = null;
-  let lastRetryableOverloadMessage = '';
+  let lastRetryableOverloadMessage = "";
   for (let attempt = 1; attempt <= OVERLOAD_RETRY_COUNT; attempt += 1) {
     const response = await fetch(endpoint, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       signal,
       body: JSON.stringify({
         contents: [
           {
-            role: 'user',
+            role: "user",
             parts: [
               {
                 text: prompt,
@@ -237,16 +249,20 @@ const requestSvgLogoWithTextModel = async ({ model, prompt, apiKey, signal }) =>
 
     const raw = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const message = raw?.error?.message || 'Gemini text fallback failed';
+      const message = raw?.error?.message || "Gemini text fallback failed";
       const retryableOverload =
         response.status === 503 ||
         response.status === 429 ||
-        (typeof message === 'string' &&
-          (message.toLowerCase().includes('high demand') ||
-            message.toLowerCase().includes('try again later')));
+        (typeof message === "string" &&
+          (message.toLowerCase().includes("high demand") ||
+            message.toLowerCase().includes("try again later")));
       if (retryableOverload && attempt < OVERLOAD_RETRY_COUNT) {
         // eslint-disable-next-line no-console
-        console.warn('[logo.service] overload retry', { model, attempt, message });
+        console.warn("[logo.service] overload retry", {
+          model,
+          attempt,
+          message,
+        });
         await sleep(2000 * attempt);
         continue;
       }
@@ -260,8 +276,8 @@ const requestSvgLogoWithTextModel = async ({ model, prompt, apiKey, signal }) =>
     }
 
     const parts = raw?.candidates?.[0]?.content?.parts || [];
-    const textPart = parts.find((part) => typeof part?.text === 'string');
-    const svg = extractSvg(textPart?.text || '');
+    const textPart = parts.find((part) => typeof part?.text === "string");
+    const svg = extractSvg(textPart?.text || "");
     if (!svg) {
       const error = new Error(`Model ${model} did not return valid SVG`);
       error.statusCode = 502;
@@ -270,9 +286,9 @@ const requestSvgLogoWithTextModel = async ({ model, prompt, apiKey, signal }) =>
     }
 
     return {
-      mimeType: 'image/svg+xml',
-      imageBase64: Buffer.from(svg, 'utf8').toString('base64'),
-      description: 'Generated via SVG text fallback',
+      mimeType: "image/svg+xml",
+      imageBase64: Buffer.from(svg, "utf8").toString("base64"),
+      description: "Generated via SVG text fallback",
     };
   }
 
@@ -290,7 +306,7 @@ const requestSvgLogoWithTextModel = async ({ model, prompt, apiKey, signal }) =>
 const requestSvgWithFixedModel = async ({ prompt, apiKey, signal }) => {
   const model = env.geminiModel || FIXED_GEMINI_MODEL;
   // eslint-disable-next-line no-console
-  console.log('[logo.service] using fixed model only', { model });
+  console.log("[logo.service] using fixed model only", { model });
   const result = await requestSvgLogoWithTextModel({
     model,
     prompt,
@@ -302,20 +318,23 @@ const requestSvgWithFixedModel = async ({ prompt, apiKey, signal }) => {
 
 const generateLogoWithGemini = async ({ prompt, generationId }) => {
   // eslint-disable-next-line no-console
-  console.log('[logo.service] generateLogoWithGemini called', {
+  console.log("[logo.service] generateLogoWithGemini called", {
     generationId,
     promptLength: prompt?.length || 0,
     model: env.geminiModel,
   });
 
   if (!env.geminiApiKey) {
-    const error = new Error('Gemini API key is not configured');
+    const error = new Error("Gemini API key is not configured");
     error.statusCode = 503;
     throw error;
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), env.logoGenerateTimeoutMs);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    env.logoGenerateTimeoutMs,
+  );
 
   try {
     const basePalette = extractPaletteFromPrompt(prompt);
@@ -330,7 +349,9 @@ const generateLogoWithGemini = async ({ prompt, generationId }) => {
     let mainResult;
     if (canUseOpenAi) {
       // eslint-disable-next-line no-console
-      console.log('[logo.service] using OpenAI image model', { model: openAiImageModel });
+      console.log("[logo.service] using OpenAI image model", {
+        model: openAiImageModel,
+      });
       mainResult = await requestPngLogoWithOpenAi({
         model: openAiImageModel,
         prompt: professionalPrompt,
@@ -339,7 +360,7 @@ const generateLogoWithGemini = async ({ prompt, generationId }) => {
       });
     } else {
       // eslint-disable-next-line no-console
-      console.warn('[logo.service] OPENAI_API_KEY missing, fallback to Gemini');
+      console.warn("[logo.service] OPENAI_API_KEY missing, fallback to Gemini");
       mainResult = await requestSvgWithFixedModel({
         prompt: professionalPrompt,
         apiKey: env.geminiApiKey,
@@ -349,19 +370,24 @@ const generateLogoWithGemini = async ({ prompt, generationId }) => {
 
     let variants = [];
     if (SYNC_VARIANT_COUNT > 0) {
-      const palettes = buildVariationPalette(basePalette).slice(0, SYNC_VARIANT_COUNT);
+      const palettes = buildVariationPalette(basePalette).slice(
+        0,
+        SYNC_VARIANT_COUNT,
+      );
       const variantPrompts = palettes.map(
         (palette, index) =>
           `${professionalPrompt}\n\n` +
           `Variation #${index + 1} color rules:\n` +
-          `- Use this exact palette: ${palette.join(', ')}\n` +
-          '- Preserve the same core logo concept and structure.\n' +
-          '- Change ONLY colors; do not change symbol geometry, layout, spacing, or composition.\n',
+          `- Use this exact palette: ${palette.join(", ")}\n` +
+          "- Preserve the same core logo concept and structure.\n" +
+          "- Change ONLY colors; do not change symbol geometry, layout, spacing, or composition.\n",
       );
 
       const variantTasks = variantPrompts.map(async (variantPrompt, index) => {
         // eslint-disable-next-line no-console
-        console.log('[logo.service] generating variation', { index: index + 1 });
+        console.log("[logo.service] generating variation", {
+          index: index + 1,
+        });
         const variant = canUseOpenAi
           ? await requestPngLogoWithOpenAi({
               model: openAiImageModel,
@@ -380,21 +406,24 @@ const generateLogoWithGemini = async ({ prompt, generationId }) => {
           imageBase64: variant.imageBase64,
           description:
             index === 0
-              ? `Variation 1 (user palette: ${palettes[index].join(', ')})`
-              : `Variation ${index + 1} (random palette: ${palettes[index].join(', ')})`,
+              ? `Variation 1 (user palette: ${palettes[index].join(", ")})`
+              : `Variation ${index + 1} (random palette: ${palettes[index].join(", ")})`,
         };
       });
 
       const variantSettled = await Promise.allSettled(variantTasks);
       variants = variantSettled.map((result, index) => {
-        if (result.status === 'fulfilled') {
+        if (result.status === "fulfilled") {
           return result.value;
         }
         // eslint-disable-next-line no-console
-        console.warn('[logo.service] variation generation failed, using primary fallback', {
-          index: index + 1,
-          message: result.reason?.message,
-        });
+        console.warn(
+          "[logo.service] variation generation failed, using primary fallback",
+          {
+            index: index + 1,
+            message: result.reason?.message,
+          },
+        );
         return {
           mimeType: mainResult.mimeType,
           imageBase64: mainResult.imageBase64,
@@ -405,25 +434,27 @@ const generateLogoWithGemini = async ({ prompt, generationId }) => {
 
     return {
       generationId,
-      status: 'completed',
+      status: "completed",
       mimeType: variants[0]?.mimeType || mainResult.mimeType,
       imageBase64: variants[0]?.imageBase64 || mainResult.imageBase64,
       description: variants[0]?.description || mainResult.description,
-      provider: mainResult.provider || (canUseOpenAi ? 'openai' : 'gemini'),
+      provider: mainResult.provider || (canUseOpenAi ? "openai" : "gemini"),
       model:
         mainResult.model ||
-        (canUseOpenAi ? openAiImageModel : env.geminiModel || FIXED_GEMINI_MODEL),
+        (canUseOpenAi
+          ? openAiImageModel
+          : env.geminiModel || FIXED_GEMINI_MODEL),
       variants,
     };
   } catch (error) {
     // eslint-disable-next-line no-console
-    console.error('[logo.service] gemini request failed', {
+    console.error("[logo.service] gemini request failed", {
       message: error?.message,
       name: error?.name,
       statusCode: error?.statusCode,
     });
-    if (error.name === 'AbortError') {
-      const timeoutError = new Error('Gemini request timed out');
+    if (error.name === "AbortError") {
+      const timeoutError = new Error("Gemini request timed out");
       timeoutError.statusCode = 504;
       throw timeoutError;
     }
