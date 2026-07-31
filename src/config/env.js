@@ -26,7 +26,7 @@ const env = {
   geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite',
   openAiApiKey: process.env.OPENAI_API_KEY || '',
   openAiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-  openAiImageModel: process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1',
+  openAiImageModel: process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2',
   logoGenerateTimeoutMs: Number(process.env.LOGO_GENERATE_TIMEOUT_MS || 300000),
   serverRequestTimeoutMs: Number(process.env.SERVER_REQUEST_TIMEOUT_MS || 300000),
   serverHeadersTimeoutMs: Number(process.env.SERVER_HEADERS_TIMEOUT_MS || 305000),
@@ -34,6 +34,9 @@ const env = {
   revenueCatTokenMap:
     process.env.REVENUECAT_TOKEN_MAP ||
     'logora_tokens_50:50,logora_tokens_100:100,logora_tokens_200:200',
+  revenueCatWebhookAuth: process.env.REVENUECAT_WEBHOOK_AUTH || '',
+  revenueCatEntitlementId: process.env.REVENUECAT_ENTITLEMENT_ID || '',
+  revenueCatSecretApiKey: process.env.REVENUECAT_SECRET_API_KEY || '',
 };
 
 const hasDbUrl = env.databaseUrl.trim().length > 0;
