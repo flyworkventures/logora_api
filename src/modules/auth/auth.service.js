@@ -2,6 +2,8 @@ const { randomUUID } = require('crypto');
 const { pool } = require('../../db/mysql');
 const { env } = require('../../config/env');
 const { signDeviceToken } = require('../../utils/jwt');
+const { creditPurchase } = require('../purchases/credit.service');
+const { assertPurchaseSyncAllowed } = require('../purchases/revenuecat-verify');
 
 const INITIAL_FREE_TOKEN_BALANCE = 10;
 
@@ -12,53 +14,6 @@ const mapDeviceRow = (row) => ({
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
-
-const parseRevenueCatTokenMap = () => {
-  const map = new Map();
-  const pairs = String(env.revenueCatTokenMap || '')
-    .split(',')
-    .map((x) => x.trim())
-    .filter(Boolean);
-  for (const pair of pairs) {
-    const [productId, amountText] = pair.split(':');
-    const amount = Number(amountText);
-    if (productId && Number.isFinite(amount) && amount > 0) {
-      map.set(productId.trim(), amount);
-    }
-  }
-  return map;
-};
-
-const revenueCatTokenMap = parseRevenueCatTokenMap();
-
-const parseTokenAmountFromProductId = (productId) => {
-  const raw = String(productId || '').trim();
-  if (!raw) return null;
-
-  // Preferred format: logora_tokens_100 (or token-100 etc.)
-  const tokenSegmentMatch = raw.match(/(?:^|[_-])tokens?[_-](\d+)(?:$|[_-])/i);
-  if (tokenSegmentMatch) {
-    const amount = Number.parseInt(tokenSegmentMatch[1], 10);
-    if (Number.isFinite(amount) && amount > 0) return amount;
-  }
-
-  // Fallback: any trailing number at the end of productId.
-  const trailingNumberMatch = raw.match(/(\d+)$/);
-  if (trailingNumberMatch) {
-    const amount = Number.parseInt(trailingNumberMatch[1], 10);
-    if (Number.isFinite(amount) && amount > 0) return amount;
-  }
-
-  return null;
-};
-
-const resolveTokenAmount = (productId) => {
-  const mapped = revenueCatTokenMap.get(productId);
-  if (Number.isFinite(mapped) && mapped > 0) {
-    return mapped;
-  }
-  return parseTokenAmountFromProductId(productId);
-};
 
 const createNotification = async ({ connection, deviceId, title, body }) => {
   await connection.execute(
@@ -196,101 +151,25 @@ const syncPurchase = async ({
   productId,
   purchaseId,
 }) => {
-  const tokenAmount = resolveTokenAmount(productId);
-  if (!tokenAmount) {
-    const error = new Error(`Cannot resolve token amount for product: ${productId}`);
-    error.statusCode = 400;
-    throw error;
-  }
+  await assertPurchaseSyncAllowed({
+    revenueCatUserId,
+    productId,
+    purchaseId,
+  });
 
-  const connection = await pool.getConnection();
-  try {
-    await connection.beginTransaction();
+  const result = await creditPurchase({
+    deviceDbId,
+    revenueCatUserId,
+    productId,
+    transactionId: purchaseId,
+    source: 'client-sync',
+  });
 
-    const [deviceRows] = await connection.execute(
-      `SELECT id, device_id AS deviceId, revenue_cat_user_id AS revenueCatUserId, token_balance AS tokenBalance
-       FROM devices
-       WHERE id = ?
-       LIMIT 1
-       FOR UPDATE`,
-      [deviceDbId],
-    );
-    const device = (deviceRows || [])[0];
-    if (!device) {
-      const error = new Error('Device not found');
-      error.statusCode = 404;
-      throw error;
-    }
-
-    if (!device.revenueCatUserId) {
-      await connection.execute(
-        `UPDATE devices
-         SET revenue_cat_user_id = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [revenueCatUserId, device.id],
-      );
-    } else if (device.revenueCatUserId !== revenueCatUserId) {
-      const error = new Error('RevenueCat user mismatch');
-      error.statusCode = 409;
-      throw error;
-    }
-
-    const [purchaseRows] = await connection.execute(
-      `SELECT id
-       FROM purchases
-       WHERE transaction_id = ?
-       LIMIT 1`,
-      [purchaseId],
-    );
-    if ((purchaseRows || []).length > 0) {
-      await connection.commit();
-      return {
-        tokenBalance: Number(device.tokenBalance),
-        tokenAmount: 0,
-        duplicated: true,
-      };
-    }
-
-    await connection.execute(
-      `INSERT INTO purchases (id, device_id, revenue_cat_user_id, product_id, transaction_id, token_amount, processed)
-       VALUES (?, ?, ?, ?, ?, ?, 1)`,
-      [randomUUID(), device.id, revenueCatUserId, productId, purchaseId, tokenAmount],
-    );
-
-    await connection.execute(
-      `UPDATE devices
-       SET token_balance = token_balance + ?, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [tokenAmount, device.id],
-    );
-
-    await createNotification({
-      connection,
-      deviceId: device.id,
-      title: 'Purchase completed',
-      body: `Your purchase has been synced successfully. +${tokenAmount} tokens added.`,
-    });
-
-    const [updatedRows] = await connection.execute(
-      `SELECT token_balance AS tokenBalance
-       FROM devices
-       WHERE id = ?
-       LIMIT 1`,
-      [device.id],
-    );
-
-    await connection.commit();
-    return {
-      tokenBalance: Number((updatedRows || [])[0]?.tokenBalance || 0),
-      tokenAmount,
-      duplicated: false,
-    };
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
+  return {
+    tokenBalance: result.tokenBalance,
+    tokenAmount: result.tokenAmount,
+    duplicated: result.duplicated,
+  };
 };
 
 const getPurchaseHistory = async (deviceDbId) => {
