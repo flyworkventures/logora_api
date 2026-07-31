@@ -4,8 +4,17 @@ const { processRevenueCatEvent } = require('./revenuecat.service');
 
 const revenueCatWebhook = asyncHandler(async (req, res) => {
   const authHeader = String(req.headers.authorization || '').trim();
-  if (env.revenueCatWebhookAuth.trim().length > 0) {
-    const expected = `Bearer ${env.revenueCatWebhookAuth.trim()}`;
+  const expectedAuth = String(env.revenueCatWebhookAuth || '').trim();
+
+  if (!expectedAuth) {
+    if (env.nodeEnv === 'production') {
+      res.status(503).json({ message: 'Webhook auth not configured' });
+      return;
+    }
+    // eslint-disable-next-line no-console
+    console.warn('[webhooks.revenuecat] REVENUECAT_WEBHOOK_AUTH missing (non-production)');
+  } else {
+    const expected = `Bearer ${expectedAuth}`;
     if (authHeader !== expected) {
       res.status(401).json({ message: 'Unauthorized webhook' });
       return;
